@@ -1,0 +1,10 @@
+[package]
+name = "blas_lapack_test"
+version = "0.1.0"
+authors = ["Matthias Heinz <heinz.matthias.3@gmail.com>"]
+
+[dependencies]
+cblas = "0.2.0"
+lapacke = "0.2.0"
+netlib-src = { version = "0.7.4", default-features = false, features = ["cblas", "lapacke", "system"] }
+ode_solvers = "0.2.0"
