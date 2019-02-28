@@ -65,9 +65,11 @@ pub trait ODE {
 }
 
 /// Structure containing the parameters for the numerical integration.
-pub struct Dopri5
+pub struct Dopri5<O>
+where
+    O: ODE + Clone,
 {
-    f: fn(f64, &Vec<f64>, &mut Vec<f64>),
+    f: O,
     x: f64,
     x_old: f64,
     x_end: f64,
@@ -90,7 +92,9 @@ pub struct Dopri5
     stats: Stats,
 }
 
-impl Dopri5
+impl<O> Dopri5<O>
+where
+    O: ODE + Clone,
 {
     /// Default initializer for the structure
     ///
@@ -105,18 +109,18 @@ impl Dopri5
     /// * `atol`    - Absolute tolerance used in the computation of the adaptive step size
     ///
     pub fn new(
-        f: fn(f64, &Vec<f64>, &mut Vec<f64>),
+        f: &O,
         x: f64,
         x_end: f64,
         dx: f64,
         y: Vec<f64>,
         rtol: f64,
         atol: f64,
-    ) -> Dopri5 {
+    ) -> Dopri5<O> {
         let alpha = 0.2 - 0.04 * 0.75;
         let y_len = y.len();
         Dopri5 {
-            f,
+            f: f.clone(),
             x,
             xd: x,
             dx,
@@ -177,7 +181,7 @@ impl Dopri5
     ///
     #[allow(clippy::too_many_arguments)]
     pub fn from_param(
-        f: fn(f64, &Vec<f64>, &mut Vec<f64>),
+        f: &O,
         x: f64,
         x_end: f64,
         dx: f64,
@@ -193,11 +197,11 @@ impl Dopri5
         n_max: u32,
         n_stiff: u32,
         out_type: OutputType,
-    ) -> Dopri5 {
+    ) -> Dopri5<O> {
         let alpha = 0.2 - beta * 0.75;
         let y_len = y.len();
         Dopri5 {
-            f,
+            f: f.clone(),
             x,
             xd: x,
             x_old: 0.0,
@@ -238,7 +242,7 @@ impl Dopri5
     /// Compute the initial stepsize
     fn hinit(&self) -> f64 {
         let mut f0 = vec![0.0; self.y.len()];
-        (self.f)(self.x, &self.y, &mut f0);
+        self.f.rhs(self.x, &self.y, &mut f0);
         let posneg = sign(1.0, self.x_end - self.x);
 
         // Compute the norm of y0 and f0
@@ -266,7 +270,7 @@ impl Dopri5
         // let y1 = self.y + f0 * h0;
         let y1 = vec_sum(&self.y, & vec_scale(h0, &f0));
         let mut f1 = vec![0.0; self.y.len()];
-        (self.f)(self.x + h0, &y1, &mut f1);
+        self.f.rhs(self.x + h0, &y1, &mut f1);
 
         // Compute the norm of f1-f0 divided by h0
         let mut d2: f64 = 0.0;
@@ -324,7 +328,7 @@ impl Dopri5
             vec![0.0; self.y.len()],
             vec![0.0; self.y.len()],
         ];
-        (self.f)(self.x, &self.y, &mut k[0]);
+        self.f.rhs(self.x, &self.y, &mut k[0]);
         self.stats.num_eval += 1;
 
         // Main loop
@@ -363,7 +367,7 @@ impl Dopri5
                         )
                     );
                 }
-                (self.f)(self.x + self.h * self.coeffs.c(s + 1), &y_next, &mut k[s]);
+                self.f.rhs(self.x + self.h * self.coeffs.c(s + 1), &y_next, &mut k[s]);
                 if s == 5 {
                     y_stiff = y_next.to_vec();
                 }

@@ -12,18 +12,40 @@ use cblas::*;
 use dopri5::*;
 use std::f64;
 
+// T_rel generator
+#[derive(Clone)]
+struct T_rel {
+    kinetic_energy: Vec<f64>,
+}
+
+impl ODE for T_rel {
+    fn rhs(&self, lambda: f64, state: &Vec<f64>, dstate: &mut Vec<f64>) {
+        let change = srg_rhs(lambda, state, &self.kinetic_energy);
+        for i in 0..dstate.len() {
+            dstate[i] = change[i];
+        }
+    }
+}
+
+
 // Struct definition
-struct SRG {
+struct SRG<O>
+where
+    O: ODE + Clone,
+{
     operator: Vec<f64>,
     lambda: f64,
     // rhs: fn(_: f64, _: &Vec<f64>, _: &mut Vec<f64>),
-    generator: Vec<f64>,
+    generator: O,
 }
 
 // Instance methods
-impl SRG {
+impl<O> SRG<O>
+where
+    O: ODE + Clone,
+{
     fn evolve(&mut self, new_lambda: f64) {
-        let mut stepper = Dopri5::new(self.rhs, self.lambda, new_lambda,
+        let mut stepper = Dopri5::new(&self.generator, self.lambda, new_lambda,
                                       (self.lambda - new_lambda)/1.0e6,
                                       self.operator.to_vec(),
                                       1.0e-10, 1.0e-10);
@@ -48,81 +70,105 @@ impl SRG {
 }
 
 // Associated methods
-impl SRG {
+impl<O> SRG<O>
+where
+    O: ODE + Clone,
+{
     fn init(operator: &Vec<f64>, lambda: f64,
-            generator: &Vec<f64>) -> SRG {
+            generator: &O) -> SRG<O> {
         return SRG {
             operator: operator.to_vec(),
             lambda,
-            generator: generator.to_vec(),
+            generator: generator.clone(),
         };
     }
+}
 
-    fn rhs(lambda: f64, generator: &Vec<f64>,
-           operator: &Vec<f64>) -> Vec<f64> {
-        let n = operator.len() as i32;
-        let mut hg = vec![0.0; n as usize];
-        let mut hh = vec![0.0; n as usize];
-        let mut dh = vec![0.0; n as usize];
+fn srg_rhs(lambda: f64, generator: &Vec<f64>,
+       operator: &Vec<f64>) -> Vec<f64> {
+    let n = operator.len() as i32;
+    let mut hg = vec![0.0; n as usize];
+    let mut hh = vec![0.0; n as usize];
+    let mut dh = vec![0.0; n as usize];
 
-        let n: i32 = (n as f64).sqrt() as i32;
+    let n: i32 = (n as f64).sqrt() as i32;
 
-        unsafe {
-            dsymm(cblas::Layout::RowMajor, cblas::Side::Left,
-                  cblas::Part::Upper, n, n, 1.0, &operator, n, &generator, n,
-                  0.0, &mut hg, n);
-            dsymm(cblas::Layout::RowMajor, cblas::Side::Left,
-                  cblas::Part::Upper, n, n, 1.0, &operator, n, &operator, n,
-                  0.0, &mut hh, n);
-        }
-
-        let hg = hg;
-        let hh = hh;
-
-        unsafe {
-            // HHG
-            dsymm(cblas::Layout::RowMajor, cblas::Side::Left,
-                  cblas::Part::Upper, n, n, 1.0, &operator, n, &hg, n,
-                  0.0, &mut dh, n);
-            // - 2 HGH
-            dsymm(cblas::Layout::RowMajor, cblas::Side::Right,
-                  cblas::Part::Upper, n, n, -2.0, &operator, n, &hg, n,
-                  1.0, &mut dh, n);
-            // GHH
-            dsymm(cblas::Layout::RowMajor, cblas::Side::Left,
-                  cblas::Part::Upper, n, n, 1.0, &generator, n, &hh, n,
-                  1.0, &mut dh, n);
-        }
-
-        let dh = dh;
-
-        let dh = dh.iter().map(|x| x * (-4.0)/(lambda.powi(5))).collect();
-
-        return dh;
+    unsafe {
+        dsymm(cblas::Layout::RowMajor, cblas::Side::Left,
+              cblas::Part::Upper, n, n, 1.0, &operator, n, &generator, n,
+              0.0, &mut hg, n);
+        dsymm(cblas::Layout::RowMajor, cblas::Side::Left,
+              cblas::Part::Upper, n, n, 1.0, &operator, n, &operator, n,
+              0.0, &mut hh, n);
     }
+
+    let hg = hg;
+    let hh = hh;
+
+    unsafe {
+        // HHG
+        dsymm(cblas::Layout::RowMajor, cblas::Side::Left,
+              cblas::Part::Upper, n, n, 1.0, &operator, n, &hg, n,
+              0.0, &mut dh, n);
+        // - 2 HGH
+        dsymm(cblas::Layout::RowMajor, cblas::Side::Right,
+              cblas::Part::Upper, n, n, -2.0, &operator, n, &hg, n,
+              1.0, &mut dh, n);
+        // GHH
+        dsymm(cblas::Layout::RowMajor, cblas::Side::Left,
+              cblas::Part::Upper, n, n, 1.0, &generator, n, &hh, n,
+              1.0, &mut dh, n);
+    }
+
+    let dh = dh;
+
+    let dh = dh.iter().map(|x| x * (-4.0)/(lambda.powi(5))).collect();
+
+    return dh;
 }
 
 
 fn main() {
-    // BLAS test
-    let n = 2;
-    let a = vec![
-        1.0, 1.0,
-        1.0, 1.0,
-    ];
-    let b = vec![
-        1.0, 2.0,
-        2.0, 3.0,
-    ];
-    let mut c = vec![
-        1.0, 0.0,
-        0.0, 1.0,
-    ];
-    unsafe {
-        dsymm(cblas::Layout::RowMajor, cblas::Side::Left, cblas::Part::Upper,
-              n, n, 1.0, &a, n, &b, n, 1.0, &mut c, n);
+    // Set array length
+    let len: i32 = 128;
+
+    // Get Gauss-Legendre nodes and weights
+    let (nodes, weights) = gauss_legendre(len, 0.0, 10.0);
+
+    // Get potential
+    let mut pot = vec![0.0; (len * len) as usize];
+    for i in 0..len {
+        for j in 0..len {
+            let index = i * len + j;
+            pot[index as usize] = V_even(nodes[i as usize], nodes[j as usize]) * weights[i as usize].sqrt() * weights[j as usize].sqrt();
+        }
     }
-    println!("{:?}", c);
+    let pot = pot;
+
+    println!("{:?}", pot);
+
+    // Generate kinetic energy
+
+
+    // BLAS test
+    // let n = 2;
+    // let a = vec![
+    //     1.0, 1.0,
+    //     1.0, 1.0,
+    // ];
+    // let b = vec![
+    //     1.0, 2.0,
+    //     2.0, 3.0,
+    // ];
+    // let mut c = vec![
+    //     1.0, 0.0,
+    //     0.0, 1.0,
+    // ];
+    // unsafe {
+    //     dsymm(cblas::Layout::RowMajor, cblas::Side::Left, cblas::Part::Upper,
+    //           n, n, 1.0, &a, n, &b, n, 1.0, &mut c, n);
+    // }
+    // println!("{:?}", c);
     // let (m, n, k) = (2, 4, 3);
     // let a = vec![
     //     1.0, 4.0,
