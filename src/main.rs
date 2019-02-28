@@ -8,7 +8,7 @@ mod butcher_tableau;
 mod controller;
 
 use cblas::*;
-// use lapacke::*;
+use lapacke::*;
 use dopri5::*;
 use std::f64;
 
@@ -52,10 +52,10 @@ where
         let res = stepper.integrate();
         match res {
             Ok(stats) => {
-                println!("{}", stats);
-                // stats.print();
+                // println!("{}", stats);
+                stats.print();
                 let res = stepper.y_out().last();
-                println!("{:?}", stepper.y_out());
+                // println!("{:?}", stepper.y_out().len());
                 match res {
                     Some(vec) => self.operator = vec.to_vec(),
                     None      => println!("What happened?"),
@@ -151,7 +151,7 @@ fn main() {
     }
     let pot = pot;
 
-    println!("{:?}", pot);
+    // println!("{:?}", pot);
 
     // Generate kinetic energy
     let mut kin = vec![0.0; (len * len) as usize];
@@ -161,91 +161,48 @@ fn main() {
     }
     let kin = kin;
 
-    println!("{:?}", kin);
+    // println!("{:?}", kin);
 
     let kin_generator = T_rel {
         kinetic_energy: kin.to_vec(),
     };
 
-    let ham = pot.iter().zip(kin).map(|(a, b)| a + b).collect();
+    let ham: Vec<f64> = pot.iter().zip(&kin).map(|(a, b)| a + b).collect();
+    let mut ham2 = ham.to_vec();
+    let mut w = vec![0.0; len as usize];
+    let info;
+
+    unsafe {
+        info = dsyev(lapacke::Layout::RowMajor, b'V', b'U', len, &mut ham2, len, &mut w);
+    }
+
+    let mut min: f64 = 0.0;
+    for x in w {
+        min = min.min(x);
+    }
+    println!("Starting ground state energy: {}", min);
 
     let mut srg_evolver = SRG::init(&ham, 40.0, &kin_generator);
+    
+    // srg_evolver.evolve(30.0);
+    srg_evolver.evolve(10.0);
+    let new_ham = srg_evolver.operator.to_vec();
+    let mut new_ham2 = new_ham.to_vec();
+    let mut w2 = vec![0.0; len as usize];
+    let info2;
 
-    srg_evolver.evolve(35.0);
+    unsafe {
+        info2 = dsyev(lapacke::Layout::RowMajor, b'V', b'U', len, &mut new_ham2, len, &mut w2);
+    }
+
+    let mut min2: f64 = 0.0;
+    for x in &w2 {
+        min2 = min2.min(*x);
+    }
+    println!("Final ground state energy: {}", min2);
 
 
-    // BLAS test
-    // let n = 2;
-    // let a = vec![
-    //     1.0, 1.0,
-    //     1.0, 1.0,
-    // ];
-    // let b = vec![
-    //     1.0, 2.0,
-    //     2.0, 3.0,
-    // ];
-    // let mut c = vec![
-    //     1.0, 0.0,
-    //     0.0, 1.0,
-    // ];
-    // unsafe {
-    //     dsymm(cblas::Layout::RowMajor, cblas::Side::Left, cblas::Part::Upper,
-    //           n, n, 1.0, &a, n, &b, n, 1.0, &mut c, n);
-    // }
-    // println!("{:?}", c);
-    // let (m, n, k) = (2, 4, 3);
-    // let a = vec![
-    //     1.0, 4.0,
-    //     2.0, 5.0,
-    //     3.0, 6.0,
-    // ];
-    // let b = vec![
-    //     1.0, 5.0,  9.0,
-    //     2.0, 6.0, 10.0,
-    //     3.0, 7.0, 11.0,
-    //     4.0, 8.0, 12.0,
-    // ];
-    // let mut c = vec![
-    //     2.0, 7.0,
-    //     6.0, 2.0,
-    //     0.0, 7.0,
-    //     4.0, 2.0,
-    // ];
-    //
-    // unsafe {
-    //     dgemm(cblas::Layout::ColumnMajor, Transpose::None, Transpose::None,
-    //           m, n, k, 1.0, &a, m, &b, k, 1.0, &mut c, m);
-    // }
-    //
-    // println!("c = {:?}", c);
-    //
-    // assert!(
-    //     c == vec![
-    //         40.0,  90.0,
-    //         50.0, 100.0,
-    //         50.0, 120.0,
-    //         60.0, 130.0,
-    //     ]
-    // );
-
-    // LAPACK test
-    // let n = 3;
-    // let mut a = vec![
-    //     3.0, 1.0, 1.0,
-    //     1.0, 3.0, 1.0,
-    //     1.0, 1.0, 3.0,
-    // ];
-    // let mut w = vec![0.0; n as usize];
-    // let info;
-    //
-    // unsafe {
-    //     info = dsyev(lapacke::Layout::ColumnMajor, b'V', b'U', n, &mut a, n, &mut w);
-    // }
-    //
-    // assert!(info == 0);
-    // for (one, another) in w.iter().zip(&[2.0, 2.0, 5.0]) {
-    //     assert!((one - another).abs() < 1e-14);
-    // }
+    let new_pot : Vec<f64> = new_ham.iter().zip(&kin).map(|(a, b)| a - b).collect();
 }
 
 fn V_even(p: f64, q: f64) -> f64 {
