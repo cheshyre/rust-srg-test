@@ -55,6 +55,7 @@ where
                 println!("{}", stats);
                 // stats.print();
                 let res = stepper.y_out().last();
+                println!("{:?}", stepper.y_out());
                 match res {
                     Some(vec) => self.operator = vec.to_vec(),
                     None      => println!("What happened?"),
@@ -129,6 +130,11 @@ fn srg_rhs(lambda: f64, generator: &Vec<f64>,
 
 
 fn main() {
+    // Constants
+    let hbarc: f64 = 1.0;
+    let mass_nucleon: f64 = 1.0;
+    let reduced_mass = mass_nucleon / 2.0;
+
     // Set array length
     let len: i32 = 128;
 
@@ -148,6 +154,24 @@ fn main() {
     println!("{:?}", pot);
 
     // Generate kinetic energy
+    let mut kin = vec![0.0; (len * len) as usize];
+    for i in 0..len {
+        let index = i * len + i;
+        kin[index as usize] = hbarc.powi(2) * nodes[i as usize].powi(2) / (2.0 * reduced_mass);
+    }
+    let kin = kin;
+
+    println!("{:?}", kin);
+
+    let kin_generator = T_rel {
+        kinetic_energy: kin.to_vec(),
+    };
+
+    let ham = pot.iter().zip(kin).map(|(a, b)| a + b).collect();
+
+    let mut srg_evolver = SRG::init(&ham, 40.0, &kin_generator);
+
+    srg_evolver.evolve(35.0);
 
 
     // BLAS test

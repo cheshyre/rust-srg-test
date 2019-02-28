@@ -316,6 +316,7 @@ where
         // Save initial values
         if self.out_type == OutputType::Sparse {
             self.x_out.push(self.x);
+            println!("pushing");
             self.y_out.push(self.y.to_vec());
         }
 
@@ -332,7 +333,10 @@ where
         self.stats.num_eval += 1;
 
         // Main loop
+        let mut counter: i32 = 0;
         while !last {
+            counter += 1;
+            println!("{}", counter);
             // Check if step number is within allowed range
             if n_step > self.n_max {
                 self.h_old = self.h;
@@ -485,12 +489,18 @@ where
     }
 
     fn solution_output(&mut self, y_next: Vec<f64>) {
+        println!("solution_output");
         if self.out_type == OutputType::Dense {
+            println!("{} {}", self.xd, self.x);
+            let orig_sign = check_sign(self.x, self.xd);
+            println!("{}", orig_sign);
+            // while check_sign(self.x, self.xd) == orig_sign {
             while self.xd.abs() <= self.x.abs() {
                 if self.x_old.abs() <= self.xd.abs() && self.x.abs() >= self.xd.abs() {
                     let theta = (self.xd - self.x_old) / self.h_old;
                     let theta1 = 1.0 - theta;
                     self.x_out.push(self.xd);
+                    println!("pushing");
                     self.y_out.push(
                         solution_output_reduce(
                             &self.rcont[0],
@@ -509,11 +519,14 @@ where
                         //             * (theta1))
                         //         * (theta),
                     );
+                    // self.xd += (orig_sign as f64) * self.dx;
                     self.xd += self.dx;
+                    println!("{} {}", self.xd, self.x);
                 }
             }
         } else {
             self.x_out.push(self.x);
+            println!("pushing");
             self.y_out.push(y_next);
         }
     }
@@ -559,6 +572,13 @@ fn vec_sum(v1: &Vec<f64>, v2: &Vec<f64>) -> Vec<f64> {
 
 fn vec_diff(v1: &Vec<f64>, v2: &Vec<f64>) -> Vec<f64> {
     v1.iter().zip(v2).map(|(x1, x2)| x1 - x2).collect()
+}
+
+fn check_sign(a: f64, b: f64) -> i32 {
+    if a < b {
+        return -1;
+    }
+    1
 }
 
 fn vec_dot(v1: &Vec<f64>, v2: &Vec<f64>) -> f64 {
